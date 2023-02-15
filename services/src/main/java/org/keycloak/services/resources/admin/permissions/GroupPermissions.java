@@ -419,13 +419,28 @@ class GroupPermissions implements GroupPermissionEvaluator, GroupPermissionManag
             return false;
         }
 
-        Resource resource =  resourceStore.findByName(server, getGroupResourceName(group));
+        Resource resource = findResourceOfGroup(group, server);
 
+        // the group, the parent and grandparent groups have no resource
         if (resource == null) {
             return false;
         }
 
         return hasPermission(resource, context, scopes);
+    }
+
+    private Resource findResourceOfGroup(GroupModel group, ResourceServer server) {
+        if (group == null) {
+            return null;
+        }
+
+        Resource resource = resourceStore.findByName(server, getGroupResourceName(group));
+
+        if (resource != null) {
+            return resource;
+        }
+
+        return findResourceOfGroup(group.getParent(), server);
     }
 
     private boolean hasPermission(Resource resource, EvaluationContext context, String... scopes) {
