@@ -22,7 +22,6 @@ import org.keycloak.authorization.model.Resource;
 import org.keycloak.authorization.model.ResourceServer;
 import org.keycloak.authorization.model.Scope;
 import org.keycloak.authorization.permission.ResourcePermission;
-import org.keycloak.authorization.policy.evaluation.EvaluationContext;
 import org.keycloak.authorization.store.PolicyStore;
 import org.keycloak.authorization.store.ResourceStore;
 import org.keycloak.models.AdminRoles;
@@ -328,12 +327,12 @@ class GroupPermissions implements GroupPermissionEvaluator, GroupPermissionManag
         Set<String> granted = new HashSet<>();
 
         resourceStore.findByType(server, "Group", resource -> {
-            if (hasPermission(resource, null, VIEW_MEMBERS_SCOPE, MANAGE_MEMBERS_SCOPE)) {
-                String groupId = resource.getName().substring(RESOURCE_NAME_PREFIX.length());
+            String groupId = resource.getName().substring(RESOURCE_NAME_PREFIX.length());
+            GroupModel group = root.getRealm().getGroupById(groupId);
+            if (hasPermission(group, VIEW_MEMBERS_SCOPE, MANAGE_MEMBERS_SCOPE)) {
                 granted.add(groupId);
 
                 // permission also applies to the subgroups
-                GroupModel group = root.getRealm().getGroupById(groupId);
                 addIdsOfSubGroups(granted, group.getSubGroupsStream());
             }
         });
@@ -409,62 +408,33 @@ class GroupPermissions implements GroupPermissionEvaluator, GroupPermissionManag
     }
 
     private boolean hasPermission(GroupModel group, String... scopes) {
-        return hasPermission(group, null, scopes);
-    }
-
-    private boolean hasPermission(GroupModel group, EvaluationContext context, String... scopes) {
-        ResourceServer server = root.realmResourceServer();
-
-        if (server == null) {
-            return false;
-        }
-
-        Resource resource = findResourceOfGroup(group, server);
-
-        // the group, the parent and grandparent groups have no resource
-        if (resource == null) {
-            return false;
-        }
-
-        return hasPermission(resource, context, scopes);
-    }
-
-    private Resource findResourceOfGroup(GroupModel group, ResourceServer server) {
         if (group == null) {
-            return null;
+            return false;
         }
-
+        ResourceServer server = root.realmResourceServer();
         Resource resource = resourceStore.findByName(server, getGroupResourceName(group));
 
         if (resource != null) {
-            return resource;
-        }
+            Collection<Permission> permissions;
 
-        return findResourceOfGroup(group.getParent(), server);
-    }
+            permissions = root.evaluatePermission(new ResourcePermission(resource, resource.getScopes(), server),
+                    server);
 
-    private boolean hasPermission(Resource resource, EvaluationContext context, String... scopes) {
-        ResourceServer server = root.realmResourceServer();
-        Collection<Permission> permissions;
+            List<String> expectedScopes = Arrays.asList(scopes);
 
-        if (context == null) {
-            permissions = root.evaluatePermission(new ResourcePermission(resource, resource.getScopes(), server), server);
-        } else {
-            permissions = root.evaluatePermission(new ResourcePermission(resource, resource.getScopes(), server), server, context);
-        }
-
-        List<String> expectedScopes = Arrays.asList(scopes);
-
-
-        for (Permission permission : permissions) {
-            for (String scope : permission.getScopes()) {
-                if (expectedScopes.contains(scope)) {
-                    return true;
+            for (Permission permission : permissions) {
+                for (String scope : permission.getScopes()) {
+                    if (expectedScopes.contains(scope)) {
+                        return true;
+                    }
                 }
             }
-        }
 
-        return false;
+            // check parent
+            return hasPermission(group.getParent(), scopes);
+        }
+        // check parent
+        return hasPermission(group.getParent(), scopes);
     }
 
     private Resource groupResource(GroupModel group) {
