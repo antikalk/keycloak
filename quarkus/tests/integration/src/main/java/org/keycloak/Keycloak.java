@@ -28,6 +28,7 @@ import java.util.concurrent.TimeoutException;
 import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
 import org.keycloak.common.Version;
 import org.keycloak.common.crypto.FipsMode;
+import org.keycloak.config.DatabaseOptions;
 import org.keycloak.config.HttpOptions;
 import org.keycloak.config.LoggingOptions;
 import org.keycloak.config.Option;
@@ -62,7 +63,6 @@ public class Keycloak {
         System.setProperty("quarkus.http.test-port", "${kc.http-port}");
         System.setProperty("quarkus.http.test-ssl-port", "${kc.https-port}");
     }
-
 
     public static void main(String[] args) {
         Keycloak.builder().start(args);
@@ -117,9 +117,12 @@ public class Keycloak {
             addOptionIfNotSet(args, HttpOptions.HTTP_ENABLED, true);
             addOptionIfNotSet(args, HttpOptions.HTTP_PORT);
             addOptionIfNotSet(args, HttpOptions.HTTPS_PORT);
-            addOptionIfNotSet(args, StorageOptions.STORAGE, StorageOptions.StorageType.chm);
 
-            boolean isFipsEnabled = ofNullable(getOptionValue(args, SecurityOptions.FIPS_MODE)).orElse(FipsMode.disabled).isFipsEnabled();
+            if (getOptionValue(args, DatabaseOptions.DB) == null) {
+                addOptionIfNotSet(args, StorageOptions.STORAGE, StorageOptions.StorageType.chm);
+            }
+
+            boolean isFipsEnabled = ofNullable(getOptionValue(args, SecurityOptions.FIPS_MODE)).orElse(FipsMode.DISABLED).isFipsEnabled();
 
             if (isFipsEnabled) {
                 String logLevel = getOptionValue(args, LoggingOptions.LOG_LEVEL);
@@ -183,6 +186,7 @@ public class Keycloak {
         return new Builder();
     }
 
+    private CuratedApplication curated;
     private RunningQuarkusApplication application;
     private ApplicationModel applicationModel;
     private Path homeDir;
@@ -210,9 +214,11 @@ public class Keycloak {
                 .setApplicationRoot(applicationModel.getApplicationModule().getModuleDir().toPath())
                 .setTargetDirectory(applicationModel.getApplicationModule().getModuleDir().toPath())
                 .setIsolateDeployment(true)
+                .setFlatClassPath(true)
                 .setMode(QuarkusBootstrap.Mode.TEST);
 
-        try (CuratedApplication curated = builder.build().bootstrap()) {
+        try {
+            curated = builder.build().bootstrap();
             AugmentAction action = curated.createAugmentor();
             Environment.setHomeDir(homeDir);
             ConfigArgsConfigSource.setCliArgs(args.toArray(new String[0]));
@@ -305,14 +311,11 @@ public class Keycloak {
 
     private void closeApplication() {
         if (application != null) {
-            ClassLoader old = Thread.currentThread().getContextClassLoader();
-            Thread.currentThread().setContextClassLoader(application.getClassLoader());
             try {
+                // curated application is also closed
                 application.close();
-            } catch (Exception e) {
-                e.printStackTrace();
-            } finally {
-                Thread.currentThread().setContextClassLoader(old);
+            } catch (Exception cause) {
+                cause.printStackTrace();
             }
         }
 
@@ -330,5 +333,6 @@ public class Keycloak {
         }
 
         application = null;
+        curated = null;
     }
 }

@@ -206,15 +206,20 @@ public class UserResource {
             }
             return Response.noContent().build();
         } catch (ModelDuplicateException e) {
+            session.getTransactionManager().setRollbackOnly();
             return ErrorResponse.exists("User exists with same username or email");
         } catch (ReadOnlyException re) {
+            session.getTransactionManager().setRollbackOnly();
             return ErrorResponse.error("User is read only!", Status.BAD_REQUEST);
         } catch (ModelException me) {
             logger.warn("Could not update user!", me);
+            session.getTransactionManager().setRollbackOnly();
             return ErrorResponse.error("Could not update user!", Status.BAD_REQUEST);
         } catch (ForbiddenException fe) {
+            session.getTransactionManager().setRollbackOnly();
             throw fe;
         } catch (Exception me) { // JPA
+            session.getTransactionManager().setRollbackOnly();
             logger.warn("Could not update user!", me);// may be committed by JTA which can't
             return ErrorResponse.error("Could not update user!", Status.BAD_REQUEST);
         }
@@ -332,7 +337,7 @@ public class UserResource {
         }
         EventBuilder event = new EventBuilder(realm, session, clientConnection);
 
-        UserSessionModel userSession = session.sessions().createUserSession(realm, user, user.getUsername(), clientConnection.getRemoteAddr(), "impersonate", false, null, null);
+        UserSessionModel userSession = new UserSessionManager(session).createUserSession(realm, user, user.getUsername(), clientConnection.getRemoteAddr(), "impersonate", false, null, null);
 
         UserModel adminUser = auth.adminAuth().getUser();
         String impersonatorId = adminUser.getId();
